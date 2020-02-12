@@ -22,6 +22,10 @@ namespace xry_mesh {
     int interporlate_bspline1(const Eigen::Matrix2Xd &Q,
                               Eigen::Matrix2Xd &Vout,
                               std::vector<double> &vecKnots);
+
+    int interpolate_close_bspline(const Eigen::Matrix2Xd &Q,
+                                  Eigen::Matrix2Xd &Vout,
+                                  std::vector<double > &vecKnots);
 }
 
 

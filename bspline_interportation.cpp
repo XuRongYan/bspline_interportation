@@ -71,8 +71,28 @@ namespace xry_mesh {
         return 0;
     }
 
+    int prepareCloseValuePointKnot(const Eigen::Matrix2Xd &Q) {
+        t.clear();
+        double lastChord = (Q.col(0) - Q.col(Q.cols() - 1)).norm();
+        double length = lastChord / 2;
+        for (int i = 0; i < (int) Q.cols() - 1; i++) {
+            Eigen::Vector2d p1, p2;
+            p1 = Q.col(i);
+            p2 = Q.col(i + 1);
+            double subLen = (p1 - p2).norm();
+            t.push_back(length);
+            length += subLen;
+        }
+        t.push_back(length);
+        length += lastChord / 2;
+        for (auto &v : t) {
+            v /= length;
+        }
+        return 0;
+    }
+
     double prepareKnots(const Eigen::Matrix2Xd &Q) {
-        int knotNum = 5 + Q.cols();
+        int knotNum = 6 + Q.cols();
         double step = 1.0 / (knotNum - 6 - 1);
         assert(step > 0);
         for (int i = 0; i < 3; i++) knots.push_back(0);
@@ -133,20 +153,20 @@ namespace xry_mesh {
         h2 = t[2] - t[1];
         hn_1 = t[t.size() - 2] - t[t.size() - 3];
         hn = t.back() - t[t.size() - 2];
-        f1 = -3.0 / h1;
-        f2 = 3.0 / h1;
-        f3 = 0;
-        g1 = 3.0 / hn;
-        g2 = -3.0 / hn;
-        g3 = 0;
+        f1 = h1 + h2;
+        f2 = -(2 * h1 + h2);
+        f3 = h1;
+        g1 = hn + hn_1;
+        g2 = -(2 * hn + hn_1);
+        g3 = hn;
         triplets.emplace_back(0, 0, f1);
         triplets.emplace_back(0, 1, f2);
         triplets.emplace_back(0, 2, f3);
         triplets.emplace_back(n + 1, n + 1, g1);
         triplets.emplace_back(n + 1, n, g2);
         triplets.emplace_back(n + 1, n - 1, g3);
-        triplets.emplace_back(1, 0, 1);
-        triplets.emplace_back(n, n + 1, 1);
+        //triplets.emplace_back(1, 0, 1);
+        //triplets.emplace_back(n, n + 1, 1);
         std::vector<double> tt;
         tt.push_back(0);
         tt.push_back(0);
@@ -158,19 +178,60 @@ namespace xry_mesh {
         knots.insert(knots.begin(), 0);
         vecKnots = tt;
         qDebug() << "knots:" << knots;
-        for (int i = 2; i < n; i++) {
+        for (int i = 1; i <= n; i++) {
             double N1, N2, N3, N1_, N2_, N3_;
             N1 = (tt[i + 2] - tt[i + 1]) * (tt[i + 2] - tt[i + 1]) / ((tt[i + 2] - tt[i - 1]) * (tt[i + 2] - tt[i]));
             N2 = (tt[i + 1] - tt[i - 1]) * (tt[i + 2] - tt[i + 1]) / ((tt[i + 2] - tt[i - 1]) * (tt[i + 2] - tt[i])) +
                  (tt[i + 3] - tt[i + 1]) * (tt[i + 1] - tt[i]) / ((tt[i + 3] - tt[i]) * (tt[i + 2] - tt[i]));
             N3 = (tt[i + 1] - tt[i]) * (tt[i + 1] - tt[i]) / ((tt[i + 3] - tt[i]) * (tt[i + 2] - tt[i]));
-            N1_ = cox_de_Boor(i - 1, 3, knots[i + 2]);
-            N2_ = cox_de_Boor(i, 3, knots[i + 2]);
-            N3_ = cox_de_Boor(i + 1, 3, knots[i + 2]);
-            triplets.emplace_back(i, i - 1, N1);
-            triplets.emplace_back(i, i, N2);
-            triplets.emplace_back(i, i + 1, N3);
+            if (t[i - 1] == 1) t[i - 1] -= 1e-12;
+            N1_ = cox_de_Boor(i - 1, 3, t[i - 1]);
+            N2_ = cox_de_Boor(i, 3, t[i - 1]);
+            N3_ = cox_de_Boor(i + 1, 3, t[i - 1]);
+            triplets.emplace_back(i, i - 1, N1_);
+            triplets.emplace_back(i, i, N2_);
+            triplets.emplace_back(i, i + 1, N3_);
         }
+        G.setFromTriplets(triplets.begin(), triplets.end());
+        return 0;
+    }
+
+    int prepareCloseSparse(Eigen::SparseMatrix<double> &G, const Eigen::Matrix2Xd &Q, std::vector<double > &vecKnots) {
+        std::vector<Eigen::Triplet<double> > triplets;
+        int n = Q.cols();
+        std::vector<double> tt;
+        tt.push_back(0);
+        tt.push_back(0);
+        tt.insert(tt.end(), t.begin(), t.end());
+        tt.push_back(1);
+        tt.push_back(1);
+//        knots = tt;
+//        knots.push_back(1);
+//        knots.insert(knots.begin(), 0);
+        vecKnots = tt;
+        qDebug() << "knots:" << knots;
+        for (int i = 0; i < n; i++) {
+            double N1_, N2_, N3_;
+            if (t[i] == 1) t[i] -= 1e-6;
+            for (int j = 0; j < Q.cols() + 2; j++) {
+                double N = cox_de_Boor(j, 3, t[i]);
+                triplets.emplace_back(i + 1, j, N);
+            }
+//            N1_ = cox_de_Boor(i, 3, t[i]);
+//            N2_ = cox_de_Boor((i + 1), 3, t[i]);
+//            N3_ = cox_de_Boor((i + 2), 3, t[i]);
+//            triplets.emplace_back(i + 1, i, N1_);
+//            triplets.emplace_back(i + 1, (i + 1), N2_);
+//            triplets.emplace_back(i + 1, (i + 2), N3_);
+        }
+        //triplets.emplace_back(n - 1, n - 1, 1);
+        triplets.emplace_back(0, 0,-1);
+//        triplets.emplace_back(0, n,-1);
+        triplets.emplace_back(0, 1,1);
+        triplets.emplace_back(0, n,1);
+        triplets.emplace_back(0, n + 1,-1);
+        triplets.emplace_back(n + 1, 0,1);
+        triplets.emplace_back(n + 1, n + 1,-1);
         G.setFromTriplets(triplets.begin(), triplets.end());
         return 0;
     }
@@ -233,20 +294,45 @@ namespace xry_mesh {
         int n_2 = Q.cols() - 3;
         Eigen::Vector2d slope2 = (t[n_1] + t[n_2] - 2 * t[n]) * (Q.col(n_1) - Q.col(n)) - (t[n_1] - t[n]) / (t[n_2] - t[n_1]) * (Q.col(n_2) - Q.col(n_1));
         prepareSparse(G, Q, vecKnots);
-//        Eigen::Vector2d slope = Q.col(1) - Q.col(Q.cols() - 2);
-//        slope.normalize();
-
         std::cout << G << std::endl;
         Eigen::SparseLU<Eigen::SparseMatrix<double, Eigen::ColMajor> > lu(G);
         Eigen::Matrix2Xd _Q(2, Q.cols() + 2);
-        _Q.col(0) =  slope1;
+        _Q.col(0) << 0, 0;
         for (int i = 0; i < Q.cols(); i++) {
             _Q.col(i + 1) = Q.col(i);
         }
-        _Q.col(Q.cols() + 1) = slope2;
+        _Q.col(Q.cols() + 1) << 0, 0;
         Eigen::MatrixXd Vt = lu.solve(_Q.transpose());
         Vout = Vt.transpose();
         double error = (G * Vout.transpose() - _Q.transpose()).norm();
+        qDebug() << "error =" << error;
+        return 0;
+    }
+
+    int interpolate_close_bspline(const Eigen::Matrix2Xd &Q,
+                                  Eigen::Matrix2Xd &Vout,
+                                  std::vector<double > &vecKnots) {
+        Eigen::SparseMatrix<double, Eigen::ColMajor> G(Q.cols() + 2, Q.cols() + 2);
+        prepareCloseValuePointKnot(Q);
+        prepareKnots(Q);
+        prepareCloseSparse(G, Q, vecKnots);
+        std::cout << G << std::endl;
+        Eigen::SparseLU<Eigen::SparseMatrix<double, Eigen::ColMajor> > lu(G);
+        Eigen::Matrix2Xd _Q(2, Q.cols() + 2);
+        _Q.col(0) << 0, 0;
+        for (int i = 0; i < Q.cols(); i++) {
+            _Q.col(i + 1) = Q.col(i);
+        }
+        _Q.col(Q.cols() + 1) << 0, 0;
+        Eigen::MatrixXd Vt = lu.solve(_Q.transpose());
+        double error = (G * Vt - _Q.transpose()).norm();
+        Eigen::MatrixXd Vtmp = Vt.transpose();
+        //Vout.resize(2, Vtmp.cols() + 2);
+        Vout.resize(2, Vtmp.cols());
+        Vout = Vtmp;
+//        for (int i = 0; i < Vtmp.cols() + 2; i++) {
+//            Vout.col(i) = Vtmp.col(i % Vtmp.cols());
+//        }
         qDebug() << "error =" << error;
         return 0;
     }

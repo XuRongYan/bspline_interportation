@@ -58,8 +58,8 @@ void MainWindow::handleMouseReleaseEvent(QMouseEvent *e) {
 void MainWindow::draw(QPaintEvent *e) {
     drawValuePoints(e);
     //drawValueLines(e);
-    //drawControlLines(e);
-    //drawControlPoints(e);
+    drawControlLines(e);
+    drawControlPoints(e);
     drawBSpline(e);
     //drawKnotPoints(e);
 }
@@ -116,8 +116,8 @@ void MainWindow::drawBSpline(QPaintEvent *e) {
             first = i + 1;
             continue;
         } else if (points[i + 1] == zero) {
-            last = i;
-            break;
+            if (points[i] != zero) last = i;
+            continue;
         }
         curvePainter.drawLine(points[i], points[i + 1]);
     }
@@ -131,13 +131,13 @@ void MainWindow::checkMeetPoint(QMouseEvent *e) {
 void MainWindow::keyReleaseEvent(QKeyEvent *event) {
     if (event->key() == Qt::Key_Space ) {
         qDebug() << "enter";
-        QPoints.push_back(QPoints[0]);
-        vecV.push_back(vecV[0]);
-        vecV.push_back(vecV[1]);
+//        QPoints.push_back(QPoints[0]);
+//        vecV.push_back(vecV[0]);
+//        vecV.push_back(vecV[1]);
         Eigen::Matrix2Xd V = Eigen::Map<Eigen::Matrix2Xd>(vecV.data(), 2, vecV.size() / 2);
         Eigen::Matrix2Xd Vout;
         std::vector<double> knots;
-        xry_mesh::interporlate_bspline1(V, Vout, knots);
+        xry_mesh::interpolate_close_bspline(V, Vout, knots);
         std::vector<QPointF> controlPoints;
         std::cout << "Vout:\n" << Vout << std::endl;
         controlPoints.reserve(Vout.cols());
@@ -145,7 +145,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent *event) {
             controlPoints.emplace_back(Vout(0, i), Vout(1, i));
         }
         qDebug() << controlPoints;
-        bSpline = BSpline(3, controlPoints, knots);
+        bSpline = BSpline(3, BSpline::CLAMPED, controlPoints);
         bSpline.calc();
         ui->widget_panel->update();
     } else {
